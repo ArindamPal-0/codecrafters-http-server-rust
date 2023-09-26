@@ -1,6 +1,10 @@
 use std::collections::HashMap;
+use std::env;
+use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::thread;
 
 #[derive(Debug)]
@@ -167,7 +171,7 @@ fn handle_connection(mut stream: TcpStream) {
 
     let path = request.path.as_str();
 
-    let status_code: StatusCode;
+    let mut status_code = StatusCode::NotFound;
     let mut response_headers = HashMap::new();
     let mut content: Option<String> = None;
     if path == "/" {
@@ -184,9 +188,11 @@ fn handle_connection(mut stream: TcpStream) {
             .to_string();
         println!("echo_text: {}", echo_text);
 
+        let content_length = echo_text.len().to_string();
+
         // setting response headers
         response_headers.insert("Content-Type".to_string(), "text/plain".to_string());
-        response_headers.insert("Content-Length".to_string(), echo_text.len().to_string());
+        response_headers.insert("Content-Length".to_string(), content_length);
 
         // setting content
         content = Some(echo_text);
@@ -201,15 +207,53 @@ fn handle_connection(mut stream: TcpStream) {
             .expect("Could not get User-Agent header")
             .clone();
 
+        let content_length = user_agent.len().to_string();
+
         // setting headers
         response_headers.insert("Content-Type".to_string(), "text/plain".to_string());
-        response_headers.insert("Content-Length".to_string(), user_agent.len().to_string());
+        response_headers.insert("Content-Length".to_string(), content_length);
 
         // settting content
         content = Some(user_agent);
-    } else {
-        // Setting status code
-        status_code = StatusCode::NotFound;
+    } else if path.starts_with("/files/") {
+        // get the directory from cmd args
+        let args: Vec<String> = env::args().collect();
+
+        // check if --directory arg is provided
+        if args.get(1).expect("Could not get the flag") != "--directory" {
+            panic!("flag should be `--directory`");
+        } else if let Some(directory) = args.get(2) {
+            let dir = PathBuf::from(directory);
+
+            if !dir.exists() {
+                panic!("The provided directory as cmd arg does not exists");
+            }
+
+            let file_name = path
+                .strip_prefix("/files/")
+                .expect("Could not trim /files/");
+
+            let file_path = dir.join(
+                PathBuf::from_str(file_name).expect("Could not convert file_name to PathBuf"),
+            );
+
+            if file_path.exists() {
+                let file_contents = fs::read_to_string(file_path.clone())
+                    .expect(format!("Could not read the file: {:?}", file_path).as_str());
+
+                status_code = StatusCode::OK;
+
+                let content_length = file_contents.len().to_string();
+
+                response_headers.insert(
+                    "Content-Type".to_string(),
+                    "application/octet-stream".to_string(),
+                );
+                response_headers.insert("Content-Length".to_string(), content_length);
+
+                content = Some(file_contents);
+            }
+        }
     }
 
     let response = HTTPResponse {
