@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 
 #[derive(Debug)]
 enum HTTPMethod {
@@ -152,7 +153,7 @@ fn main() {
             Ok(stream) => {
                 println!("> accepted new connection");
 
-                handle_connection(stream);
+                thread::spawn(|| handle_connection(stream));
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -179,9 +180,9 @@ fn handle_connection(mut stream: TcpStream) {
         // getting content
         let echo_text = path
             .strip_prefix("/echo/")
-            .expect("Could not strip prefix /echo/").to_string();
+            .expect("Could not strip prefix /echo/")
+            .to_string();
         println!("echo_text: {}", echo_text);
-
 
         // setting response headers
         response_headers.insert("Content-Type".to_string(), "text/plain".to_string());
